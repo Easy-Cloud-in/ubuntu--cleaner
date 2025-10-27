@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           fetch-depth: 0 # Fetch all history for tags
 
@@ -132,7 +132,7 @@ jobs:
           unzip -l ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: Ubuntu Cleaner ${{ steps.version.outputs.version }}

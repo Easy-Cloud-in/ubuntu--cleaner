@@ -58,6 +58,7 @@ config.local
 # Documentation build files
 docs/_build/
 site/
+docs/
 
 # Package files
 *.deb
