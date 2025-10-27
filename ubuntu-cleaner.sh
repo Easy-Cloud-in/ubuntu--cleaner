@@ -18,6 +18,57 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# --- Configuration file support ---
+# Check for config file in script directory first, then fall back to home directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$HOME/.ubuntu-cleaner.conf"
+
+# If config file exists in script directory, use it instead
+if [ -f "$SCRIPT_DIR/ubuntu-cleaner.conf" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/ubuntu-cleaner.conf"
+fi
+
+# Default configuration
+DEFAULT_CONFIG="# Ubuntu Cleaner Configuration
+# Log file location
+LOG_FILE=~/.ubuntu-cleaner.log
+
+# Space tracking threshold (GB)
+SPACE_TRACKING_THRESHOLD=1
+
+# Keep minimum kernels
+MINIMUM_KERNELS=2
+
+# Browser cache warning size (MB)
+BROWSER_CACHE_WARNING_SIZE=1024
+
+# Enable/disable features
+ENABLE_DOCKER_CLEANUP=true
+ENABLE_FLATPAK_CLEANUP=true
+ENABLE_SNAP_CLEANUP=true
+ENABLE_APPIMAGE_CLEANUP=true
+ENABLE_ORPHAN_CLEANUP=false
+
+# Custom cleanup paths
+CUSTOM_CACHE_PATHS=()
+"
+
+# Load configuration if it exists
+load_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        # Source configuration file
+        source "$CONFIG_FILE"
+        echo -e "${GREEN}Loaded configuration from: $CONFIG_FILE${NC}"
+    else
+        echo -e "${BLUE}No configuration file found. Using built-in defaults.${NC}"
+        echo -e "${BLUE}Default config locations: ${SCRIPT_DIR}/ubuntu-cleaner.conf or $CONFIG_FILE${NC}"
+        echo -e "${BLUE}Copy ${SCRIPT_DIR}/ubuntu-cleaner.conf to your home directory to customize settings.${NC}"
+    fi
+}
+
+# Load configuration at startup
+load_config
+
 # --- Log file location ---
 LOG_FILE=~/.ubuntu-cleaner.log
 
@@ -63,6 +114,116 @@ check_sudo_access() {
 # --- Function to check for command existence ---
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# --- Function to validate user input ---
+validate_input() {
+    local input=$1
+    local valid_options=$2
+    local prompt=$3
+
+    while true; do
+        read -p "$prompt" input
+        if [ -z "$input" ]; then
+            echo ""
+            return 0
+        elif [[ "$valid_options" =~ "$input" ]]; then
+            echo "$input"
+            return 0
+        else
+            echo -e "${RED}Invalid format. Please use a number followed by a unit.${NC}"
+            echo -e "${BLUE}Valid time units: d (days), w (weeks), month, months, y (years)${NC}"
+            echo -e "${BLUE}Valid size units: M, MB (megabytes), G, GB (gigabytes)${NC}"
+            echo -e "${BLUE}Examples: 1d, 2w, 1month, 100M, 500MB, 1G${NC}"
+        fi
+    done
+}
+
+# --- Progress bar for long operations ---
+show_progress() {
+    local current=$1
+    local total=$2
+    local width=40
+    local percentage=$((current * 100 / total))
+    local completed=$((width * percentage / 100))
+    local remaining=$((width - completed))
+
+    # Build progress bar
+    local progress_bar=""
+    progress_bar+="${GREEN}["
+    for ((i=0; i<completed; i++)); do
+        progress_bar+="#"
+    done
+    for ((i=0; i<remaining; i++)); do
+        progress_bar+=" "
+    done
+    progress_bar+="]${NC} "
+
+    # Add percentage and status
+    printf "\r%s %d%%" "$progress_bar" "$percentage"
+
+    # Complete when done
+    if [ $current -eq $total ]; then
+        printf "\n"
+    fi
+}
+
+# --- System health check ---
+check_system_health() {
+    print_separator
+    echo -e "${GREEN}System Health Check${NC}"
+    print_separator
+
+    local issues=0
+
+    # Check disk space
+    local disk_usage=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+    if [ "$disk_usage" -gt 95 ]; then
+        echo -e "${RED}⚠ CRITICAL: Disk space critically low (${disk_usage}% used)${NC}"
+        issues=$((issues + 1))
+    elif [ "$disk_usage" -gt 85 ]; then
+        echo -e "${YELLOW}⚠ WARNING: Disk space low (${disk_usage}% used)${NC}"
+        issues=$((issues + 1))
+    fi
+
+    # Check available memory
+    local mem_available=$(free -m | awk 'NR==2{printf "%.0f", $7}')
+    if [ "$mem_available" -lt 500 ]; then
+        echo -e "${RED}⚠ CRITICAL: Low available memory (${mem_available}MB)${NC}"
+        issues=$((issues + 1))
+    elif [ "$mem_available" -lt 1000 ]; then
+        echo -e "${YELLOW}⚠ WARNING: Low available memory (${mem_available}MB)${NC}"
+        issues=$((issues + 1))
+    fi
+
+    # Check for running package managers
+    if pgrep -x "apt" > /dev/null; then
+        echo -e "${YELLOW}⚠ WARNING: Package manager (apt) is running${NC}"
+        echo -e "${BLUE}   Please close package managers before running cleanup${NC}"
+        issues=$((issues + 1))
+    fi
+
+    # Check for large log files
+    local large_logs=$(find /var/log -type f -size +100M 2>/dev/null | wc -l)
+    if [ "$large_logs" -gt 0 ]; then
+        echo -e "${YELLOW}⚠ INFO: Found $large_logs large log files (>100MB)${NC}"
+        echo -e "${BLUE}   These can be cleaned in the System Journal cleanup step${NC}"
+    fi
+
+    # Summary
+    if [ $issues -eq 0 ]; then
+        echo -e "${GREEN}✓ System health check passed - no issues detected${NC}"
+    else
+        echo -e "\n${YELLOW}Found $issues potential issue(s). Review warnings above before proceeding.${NC}"
+        read -p "Continue anyway? [y/N] " confirm
+        if ! [[ $confirm =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}Exiting due to system health concerns.${NC}"
+            log_action "Script exited due to system health issues"
+            exit 0
+        fi
+    fi
+
+    log_action "System health check completed - $issues issues found"
 }
 
 # --- Function to check Ubuntu version ---
@@ -198,7 +359,11 @@ cleanup_apt() {
         apt autoremove --dry-run
         read -p "Do you want to remove these packages? [y/N] " confirm
         if [[ $confirm =~ ^[Yy]$ ]]; then
-            sudo apt autoremove -y
+            if ! sudo apt autoremove -y; then
+                echo -e "${RED}Error: Failed to remove unused packages. Check for broken dependencies.${NC}"
+                log_action "ERROR: APT autoremove failed"
+                return 1
+            fi
             echo -e "${GREEN}Unused packages removed.${NC}"
             log_action "APT autoremove completed"
         else
@@ -212,7 +377,11 @@ cleanup_apt() {
 
     # Autoclean
     echo -e "\n${YELLOW}Cleaning up old package cache...${NC}"
-    sudo apt autoclean
+    if ! sudo apt autoclean; then
+        echo -e "${RED}Error: Failed to clean package cache.${NC}"
+        log_action "ERROR: APT autoclean failed"
+        return 1
+    fi
     echo -e "${GREEN}Package cache cleaned.${NC}"
     log_action "APT autoclean completed"
 
@@ -224,7 +393,11 @@ cleanup_apt() {
         echo "$residual_configs"
         read -p "Do you want to purge these configuration files? [y/N] " confirm
         if [[ $confirm =~ ^[Yy]$ ]]; then
-            sudo apt purge "$residual_configs" -y
+            if ! sudo apt purge "$residual_configs" -y; then
+                echo -e "${RED}Error: Failed to purge residual configuration files.${NC}"
+                log_action "ERROR: APT purge failed"
+                return 1
+            fi
             echo -e "${GREEN}Residual configuration files purged.${NC}"
             log_action "Residual configs purged"
         else
@@ -255,18 +428,9 @@ cleanup_logs() {
     echo -e "\n${YELLOW}You can limit logs by time or size.${NC}"
     echo -e "${BLUE}Time formats: 1d, 2w, 1month, 3months, 1y${NC}"
     echo -e "${BLUE}Size formats: 100M, 500MB, 1G, 2GB${NC}"
-    read -p "Enter vacuum time or size, or press Enter to skip: " vacuum_option
+    vacuum_option=$(validate_input "" "^[0-9]+[a-zA-Z]+$" "Enter vacuum time or size, or press Enter to skip: ")
     if [ -n "$vacuum_option" ]; then
-        # Validate input format with more flexible regex
-        # Accept formats: 1d, 2w, 1month, 100M, 500MB, 1G, etc.
-        if [[ ! "$vacuum_option" =~ ^[0-9]+[a-zA-Z]+$ ]]; then
-            echo -e "${RED}Invalid format. Please use a number followed by a unit.${NC}"
-            echo -e "${BLUE}Valid time units: d (days), w (weeks), month, months, y (years)${NC}"
-            echo -e "${BLUE}Valid size units: M, MB (megabytes), G, GB (gigabytes)${NC}"
-            echo -e "${BLUE}Examples: 1d, 2w, 1month, 100M, 500MB, 1G${NC}"
-            log_action "ERROR: Invalid journal vacuum format: $vacuum_option"
-            return 1
-        fi
+        log_action "Journal vacuum option set to: $vacuum_option"
         
         # Let journalctl handle the actual validation
         # Try vacuum-time first, then vacuum-size
@@ -433,11 +597,35 @@ cleanup_appimages() {
     local space_before=$(get_available_space)
     log_action "AppImage cleanup started"
 
-    echo -e "${YELLOW}Searching for AppImage files in your home directory...${NC}"
+    # Add more comprehensive AppImage search
+    find_appimages() {
+        local appimage_paths=(
+            "$HOME/Applications"
+            "$HOME/.local/bin"
+            "$HOME/bin"
+            "/opt"
+            "/usr/local/bin"
+            "$HOME/Downloads"
+        )
+
+        local found_appimages=()
+
+        for path in "${appimage_paths[@]}"; do
+            if [ -d "$path" ]; then
+                while IFS= read -r -d '' appimage; do
+                    found_appimages+=("$appimage")
+                done < <(find "$path" -name "*.AppImage" -type f -print0 2>/dev/null)
+            fi
+        done
+
+        echo "${found_appimages[@]}"
+    }
+
+    echo -e "${YELLOW}Searching for AppImage files in common locations...${NC}"
     
     # Use mapfile to store AppImage files in array
     declare -a appimage_files
-    mapfile -t appimage_files < <(find ~ -name "*.AppImage" -type f 2>/dev/null)
+    mapfile -t appimage_files < <(find_appimages)
     
     # Handle case when no AppImages are found
     if [ ${#appimage_files[@]} -eq 0 ]; then
@@ -625,6 +813,29 @@ cleanup_old_kernels() {
 
     # List all installed kernels using dpkg -l and grep linux-image
     echo -e "\n${YELLOW}Scanning for installed kernel packages...${NC}"
+    
+    # Get kernel packages with enhanced detection
+    get_kernel_packages() {
+        local kernel_version=$1
+        local packages=()
+
+        # Primary kernel packages
+        packages+=("linux-image-${kernel_version}")
+        packages+=("linux-headers-${kernel_version}")
+        packages+=("linux-modules-${kernel_version}")
+
+        # Additional packages that might exist
+        if dpkg -l | grep -q "linux-image-extra-${kernel_version}"; then
+            packages+=("linux-image-extra-${kernel_version}")
+        fi
+
+        if dpkg -l | grep -q "linux-modules-extra-${kernel_version}"; then
+            packages+=("linux-modules-extra-${kernel_version}")
+        fi
+
+        echo "${packages[@]}"
+    }
+    
     local all_kernels=$(dpkg -l | grep '^ii' | grep 'linux-image-[0-9]' | awk '{print $2}' | grep -v 'linux-image-generic')
     
     if [ -z "$all_kernels" ]; then
@@ -784,9 +995,14 @@ cleanup_docker() {
     # Verify Docker daemon is running using docker info
     echo -e "${YELLOW}Checking Docker daemon status...${NC}"
     if ! sudo docker info >/dev/null 2>&1; then
-        echo -e "${RED}Docker daemon is not running. Please start Docker first.${NC}"
-        echo -e "${BLUE}You can start Docker with: sudo systemctl start docker${NC}"
-        log_action "ERROR: Docker daemon not running"
+        echo -e "${RED}Docker daemon is not running or accessible.${NC}"
+        echo -e "${BLUE}Troubleshooting steps:${NC}"
+        echo -e "  1. Check if Docker is installed: docker --version"
+        echo -e "  2. Start Docker service: sudo systemctl start docker"
+        echo -e "  3. Check Docker status: sudo systemctl status docker"
+        echo -e "  4. Add user to docker group: sudo usermod -aG docker \$USER"
+        echo -e "${YELLOW}Please resolve these issues before continuing.${NC}"
+        log_action "ERROR: Docker daemon not accessible - user notified"
         return 1
     fi
 
@@ -992,6 +1208,33 @@ cleanup_browser_cache() {
     # Track space before cleanup
     local space_before=$(get_available_space)
     log_action "Browser cache cleanup started"
+
+    # Detect browsers with enhanced detection
+    detect_browsers() {
+        local detected_browsers=()
+
+        # Firefox (including multiple profiles)
+        if [ -d "$HOME/.mozilla/firefox" ]; then
+            detected_browsers+=("Firefox")
+        fi
+
+        # Chrome/Chromium-based browsers
+        for browser in "google-chrome" "chromium" "brave-browser" "vivaldi-stable" "opera"; do
+            if [ -d "$HOME/.cache/$browser" ]; then
+                detected_browsers+=("$browser")
+            fi
+        done
+
+        # Flatpak browsers
+        if command_exists flatpak; then
+            flatpak_browsers=$(flatpak list --app | grep -E "(firefox|chrome|chromium|brave)" | awk '{print $1}')
+            if [ -n "$flatpak_browsers" ]; then
+                detected_browsers+=("Flatpak: $flatpak_browsers")
+            fi
+        fi
+
+        echo "${detected_browsers[@]}"
+    }
 
     # Define cache paths for Firefox, Chrome, Chromium, and Brave
     declare -A browser_paths
@@ -1783,6 +2026,7 @@ clear_log() {
     fi
 }
 
+
 # --- Main Menu ---
 show_menu() {
     clear
@@ -1854,8 +2098,12 @@ show_menu() {
     echo -e "${GREEN}============================================================${NC}"
 }
 
+
 # --- Check sudo access at script start ---
 check_sudo_access
+
+# --- System health check at startup ---
+check_system_health
 
 # --- Main Loop ---
 while true; do
