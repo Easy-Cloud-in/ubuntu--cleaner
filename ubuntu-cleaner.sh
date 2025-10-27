@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # Interactive Ubuntu Cleanup Script - Enhanced Version
-# Version: 2.0
+# Version: 2.0.2
 # For Ubuntu 24.04 LTS and similar Debian-based systems.
 #
 # DISCLAIMER: This script is provided as-is. Always review the actions
