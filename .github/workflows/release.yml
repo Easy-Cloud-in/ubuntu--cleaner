@@ -118,55 +118,56 @@ jobs:
           echo "Release package contents:"
           unzip -l ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
 
-     - name: Install GitHub CLI
-       run: |
-         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-         sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-         echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-         sudo apt update
-         sudo apt install gh
-     - name: Create GitHub Release
-       run: |
-         # Create release notes
-         cat > release_notes.md << 'RELEASE_NOTES'
-         ## Ubuntu Cleaner ${{ steps.version.outputs.version }}
+      - name: Install GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh
 
-         ### 🚀 Installation
+      - name: Create GitHub Release
+        run: |
+          # Create release notes
+          cat > release_notes.md << 'RELEASE_NOTES'
+          ## Ubuntu Cleaner ${{ steps.version.outputs.version }}
 
-         1. Download `ubuntu-cleaner-${{ steps.version.outputs.version }}.zip`
-         2. Extract the zip file:
-            ```bash
-            unzip ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
-            cd ubuntu-cleaner-${{ steps.version.outputs.version }}
-            ```
-         3. Run the installer:
-            ```bash
-            bash install.sh
-            ```
-         4. Run the cleaner:
-            ```bash
-            ./ubuntu-cleaner.sh
-            ```
+          ### 🚀 Installation
 
-         ### 📦 What's Included
+          1. Download `ubuntu-cleaner-${{ steps.version.outputs.version }}.zip`
+          2. Extract the zip file:
+             ```bash
+             unzip ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+             cd ubuntu-cleaner-${{ steps.version.outputs.version }}
+             ```
+          3. Run the installer:
+             ```bash
+             bash install.sh
+             ```
+          4. Run the cleaner:
+             ```bash
+             ./ubuntu-cleaner.sh
+             ```
 
-         - `ubuntu-cleaner.sh` - Main cleanup script
-         - `README.md` - Complete documentation
-         - `install.sh` - Quick installation script
+          ### 📦 What's Included
 
-         ### 📝 Changes
+          - `ubuntu-cleaner.sh` - Main cleanup script
+          - `README.md` - Complete documentation
+          - `install.sh` - Quick installation script
 
-         ${{ github.event.head_commit.message }}
+          ### 📝 Changes
 
-         ---
+          ${{ github.event.head_commit.message }}
 
-         **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.previous_version }}...${{ steps.version.outputs.version }}
-         RELEASE_NOTES
+          ---
 
-         # Create release using GitHub CLI
-         gh release create ${{ steps.version.outputs.version }} \
-           --title "Ubuntu Cleaner ${{ steps.version.outputs.version }}" \
-           --notes-file release_notes.md \
-           ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
-       env:
-         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.previous_version }}...${{ steps.version.outputs.version }}
+          RELEASE_NOTES
+
+           # Create release using GitHub CLI
+           gh release create ${{ steps.version.outputs.version }} \
+             --title "Ubuntu Cleaner ${{ steps.version.outputs.version }}" \
+             --notes-file release_notes.md \
+             ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
