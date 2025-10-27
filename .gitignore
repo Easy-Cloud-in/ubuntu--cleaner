@@ -1,0 +1,78 @@
+# Ubuntu Cleaner Project - .gitignore
+
+# Log files
+*.log
+.ubuntu-cleaner.log
+
+# Backup files
+*.bak
+*.backup
+*~
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Linux
+*~
+.directory
+.fuse_hidden*
+
+# Editor directories and files
+.vscode/
+.idea/
+.kiro/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+.vim/
+.netrwhist
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test files and directories
+test/
+tests/
+test_*.sh
+*_test.sh
+
+# Local configuration
+.env
+.env.local
+config.local
+
+# Documentation build files
+docs/_build/
+site/
+
+# Package files
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# Personal notes
+notes.txt
+TODO.txt
+NOTES.md
+
+# Version control
+.git/
+.gitattributes
+
+# CI/CD
+.github/workflows/local/

@@ -1,0 +1,177 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # Skip if commit message contains [skip-release]
+    if: "!contains(github.event.head_commit.message, '[skip-release]')"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+
+      - name: Check for existing tags
+        id: check_tags
+        run: |
+          # Check if any tags exist
+          if ! git describe --tags --abbrev=0 2>/dev/null; then
+            echo "❌ ERROR: No version tags found in repository!"
+            echo ""
+            echo "📋 Before using automated releases, you must create an initial version tag."
+            echo ""
+            echo "To create your first tag, run:"
+            echo "  git tag v1.0.0"
+            echo "  git push origin v1.0.0"
+            echo ""
+            echo "Or start from a different version:"
+            echo "  git tag v2.0.0"
+            echo "  git push origin v2.0.0"
+            echo ""
+            echo "Then push your changes again to trigger the release workflow."
+            echo ""
+            exit 1
+          fi
+          echo "✅ Tags found, proceeding with release..."
+
+      - name: Get latest tag and increment version
+        id: version
+        run: |
+          # Get the latest tag (we know it exists from previous step)
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "Latest tag: $LATEST_TAG"
+
+          # Validate tag format (must be vX.Y.Z)
+          if ! [[ "$LATEST_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ ERROR: Invalid tag format: $LATEST_TAG"
+            echo ""
+            echo "Tags must follow semantic versioning: vMAJOR.MINOR.PATCH"
+            echo "Examples: v1.0.0, v2.1.3, v10.5.2"
+            echo ""
+            echo "Please create a properly formatted tag:"
+            echo "  git tag v1.0.0"
+            echo "  git push origin v1.0.0"
+            echo ""
+            exit 1
+          fi
+
+          # Remove 'v' prefix and split version
+          VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Increment patch version
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version_no_v=${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_OUTPUT
+
+      - name: Update version in script
+        run: |
+          # Update version in the script file
+          sed -i "s/^# Version: .*/# Version: ${{ steps.version.outputs.version_no_v }}/" ubuntu-cleaner.sh
+
+          # Show the change
+          grep "^# Version:" ubuntu-cleaner.sh
+
+      - name: Commit version update
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add ubuntu-cleaner.sh
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+
+      - name: Create and push tag
+        run: |
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push version update to main
+        run: |
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release package
+        run: |
+          # Create a release directory
+          mkdir -p ubuntu-cleaner-${{ steps.version.outputs.version }}
+
+          # Copy files to release directory
+          cp ubuntu-cleaner.sh ubuntu-cleaner-${{ steps.version.outputs.version }}/
+          cp README.md ubuntu-cleaner-${{ steps.version.outputs.version }}/
+          cp LICENSE ubuntu-cleaner-${{ steps.version.outputs.version }}/ 2>/dev/null || echo "No LICENSE file found"
+
+          # Create installation script
+          cat > ubuntu-cleaner-${{ steps.version.outputs.version }}/install.sh << 'EOF'
+          #!/bin/bash
+          echo "Installing Ubuntu Cleaner..."
+          chmod +x ubuntu-cleaner.sh
+          echo "Installation complete!"
+          echo ""
+          echo "Run the cleaner with: ./ubuntu-cleaner.sh"
+          EOF
+
+          chmod +x ubuntu-cleaner-${{ steps.version.outputs.version }}/install.sh
+
+          # Create zip file
+          zip -r ubuntu-cleaner-${{ steps.version.outputs.version }}.zip ubuntu-cleaner-${{ steps.version.outputs.version }}/
+
+          # Show contents
+          echo "Release package contents:"
+          unzip -l ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Ubuntu Cleaner ${{ steps.version.outputs.version }}
+          body: |
+            ## Ubuntu Cleaner ${{ steps.version.outputs.version }}
+
+            ### 🚀 Installation
+
+            1. Download `ubuntu-cleaner-${{ steps.version.outputs.version }}.zip`
+            2. Extract the zip file:
+               ```bash
+               unzip ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+               cd ubuntu-cleaner-${{ steps.version.outputs.version }}
+               ```
+            3. Run the installer:
+               ```bash
+               bash install.sh
+               ```
+            4. Run the cleaner:
+               ```bash
+               ./ubuntu-cleaner.sh
+               ```
+
+            ### 📦 What's Included
+
+            - `ubuntu-cleaner.sh` - Main cleanup script
+            - `README.md` - Complete documentation
+            - `install.sh` - Quick installation script
+
+            ### 📝 Changes
+
+            ${{ github.event.head_commit.message }}
+
+            ---
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.version }}...main
+          files: |
+            ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
