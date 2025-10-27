@@ -16,9 +16,9 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          fetch-depth: 0 # Fetch all history for tags
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --prune --unshallow --tags 2>/dev/null || git fetch --prune --tags
 
       - name: Check for existing tags
         id: check_tags
@@ -134,46 +134,47 @@ jobs:
           unzip -l ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: Ubuntu Cleaner ${{ steps.version.outputs.version }}
-          body: |
-            ## Ubuntu Cleaner ${{ steps.version.outputs.version }}
+        run: |
+          # Create release notes
+          cat > release_notes.md << 'RELEASE_NOTES'
+          ## Ubuntu Cleaner ${{ steps.version.outputs.version }}
 
-            ### 🚀 Installation
+          ### 🚀 Installation
 
-            1. Download `ubuntu-cleaner-${{ steps.version.outputs.version }}.zip`
-            2. Extract the zip file:
-               ```bash
-               unzip ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
-               cd ubuntu-cleaner-${{ steps.version.outputs.version }}
-               ```
-            3. Run the installer:
-               ```bash
-               bash install.sh
-               ```
-            4. Run the cleaner:
-               ```bash
-               ./ubuntu-cleaner.sh
-               ```
+          1. Download `ubuntu-cleaner-${{ steps.version.outputs.version }}.zip`
+          2. Extract the zip file:
+             ```bash
+             unzip ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
+             cd ubuntu-cleaner-${{ steps.version.outputs.version }}
+             ```
+          3. Run the installer:
+             ```bash
+             bash install.sh
+             ```
+          4. Run the cleaner:
+             ```bash
+             ./ubuntu-cleaner.sh
+             ```
 
-            ### 📦 What's Included
+          ### 📦 What's Included
 
-            - `ubuntu-cleaner.sh` - Main cleanup script
-            - `README.md` - Complete documentation
-            - `install.sh` - Quick installation script
+          - `ubuntu-cleaner.sh` - Main cleanup script
+          - `README.md` - Complete documentation
+          - `install.sh` - Quick installation script
 
-            ### 📝 Changes
+          ### 📝 Changes
 
-            ${{ github.event.head_commit.message }}
+          ${{ github.event.head_commit.message }}
 
-            ---
+          ---
 
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.version }}...main
-          files: |
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.version }}...main
+          RELEASE_NOTES
+
+          # Create release using GitHub CLI
+          gh release create ${{ steps.version.outputs.version }} \
+            --title "Ubuntu Cleaner ${{ steps.version.outputs.version }}" \
+            --notes-file release_notes.md \
             ubuntu-cleaner-${{ steps.version.outputs.version }}.zip
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
